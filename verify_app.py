@@ -70,6 +70,15 @@ print(f"  Expected: {expected_default_count:,} | Actual: {default_posts_str}")
 assert default_posts_str == "50,000"
 print("  ✓ Total posts metric correctly shows 50,000.")
 
+# Check that the three comparison captions for post type, weekday and campaign contain "not statistically significant"
+captions_default = [c.value for c in at.caption]
+not_sig_captions = [c for c in captions_default if "not statistically significant" in c]
+print(f"  Captions containing 'not statistically significant': {len(not_sig_captions)} found")
+for nsc in not_sig_captions:
+    print(f"    - {nsc}")
+assert len(not_sig_captions) == 3, f"Expected exactly 3 captions with 'not statistically significant', found {len(not_sig_captions)}"
+print("  ✓ All 3 comparison captions (post type, weekday, campaign) contain 'not statistically significant'.")
+
 # Test 2: flt_post_type = ["Reel"]
 print("\n[Test 2: Reel filter]")
 at.multiselect(key="flt_post_type").set_value(["Reel"]).run()

@@ -1,4 +1,3 @@
-import streamlit as pd_st  # for any naming if needed
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,9 +7,28 @@ from metrics import (
     get_kpi_summary,
     get_monthly_posts,
     get_top_posts_by_likes,
-    get_top_posts_by_engagement_rate
+    get_top_posts_by_engagement_rate,
+    get_post_type_performance,
+    get_weekday_performance,
+    get_engagement_funnel,
+    get_growth_funnel,
+    get_hashtag_performance,
+    get_campaign_performance,
+    get_group_significance,
+    get_hashtag_significance
 )
-from charts import fig_monthly_trend, fig_top_posts
+from charts import (
+    fig_monthly_trend,
+    fig_top_posts,
+    fig_post_type_actions,
+    fig_avg_engagement_rate_by_group,
+    fig_weekday_performance,
+    fig_hashtag_usage,
+    fig_campaign_follows,
+    fig_engagement_funnel,
+    fig_actions_per_100_reach,
+    fig_growth_funnel
+)
 
 # 1. Page Configuration
 st.set_page_config(
@@ -29,11 +47,9 @@ def get_cached_data() -> pd.DataFrame:
 full_df = get_cached_data()
 full_bounds = (full_df['post_date'].min(), full_df['post_date'].max())
 
-# Distinct options for filters
 all_post_types = sorted(full_df['post_type'].unique().tolist())
 all_campaigns = sorted(full_df['campaign_type'].unique().tolist())
 
-# Chronological month labels and their datetime month values
 month_order_df = (
     full_df[['month', 'month_label']]
     .drop_duplicates()
@@ -43,8 +59,35 @@ month_order_df = (
 all_month_labels = month_order_df['month_label'].tolist()
 label_to_month = dict(zip(month_order_df['month_label'], month_order_df['month']))
 
-# Exploded hashtags list for unique choices
 all_hashtags = sorted(explode_hashtags(full_df)['hashtag'].unique().tolist())
+
+
+def significance_caption(result: dict, label: str) -> str:
+    """
+    Turns a get_group_significance result into a clean one-sentence statistical summary.
+    """
+    if result.get("anova_p") is None or result.get("n_groups", 0) < 2:
+        return "Select at least two options to run a significance test."
+
+    anova_p = result["anova_p"]
+    kruskal_p = result["kruskal_p"]
+    eta_pct = (result["eta_squared"] * 100) if result.get("eta_squared") is not None else 0.0
+
+    sig_phrase = "are statistically significant" if result.get("significant") else "are not statistically significant"
+
+    plural_map = {
+        "post type": "post types",
+        "day of week": "days of the week",
+        "campaign type": "campaign types"
+    }
+    plural_label = plural_map.get(label, f"{label}s")
+
+    return (
+        f"ANOVA p = {anova_p:.3f}, Kruskal-Wallis p = {kruskal_p:.3f}: "
+        f"differences between {plural_label} {sig_phrase} "
+        f"({label} explains {eta_pct:.2f}% of the variation in engagement rate)."
+    )
+
 
 # 3. Sidebar Filters
 st.sidebar.header("Filter Posts")
@@ -78,7 +121,6 @@ sel_hashtags = st.sidebar.multiselect(
     key="flt_hashtags"
 )
 
-# Convert selections to filter_data arguments (None when all selected)
 if not sel_post_types or not sel_campaigns or not sel_hashtags:
     st.warning("No posts match the current filters.")
     st.stop()
@@ -87,7 +129,6 @@ post_types_arg = None if len(sel_post_types) == len(all_post_types) else sel_pos
 campaign_types_arg = None if len(sel_campaigns) == len(all_campaigns) else sel_campaigns
 hashtags_arg = None if len(sel_hashtags) == len(all_hashtags) else sel_hashtags
 
-# Handle month slider bounds
 if sel_months == (all_month_labels[0], all_month_labels[-1]):
     months_arg = None
 else:
@@ -96,7 +137,6 @@ else:
     active_labels = all_month_labels[start_idx : end_idx + 1]
     months_arg = [label_to_month[lbl] for lbl in active_labels]
 
-# Apply filtering
 filtered_df = filter_data(
     full_df,
     post_types=post_types_arg,
@@ -105,14 +145,12 @@ filtered_df = filter_data(
     campaign_types=campaign_types_arg
 )
 
-# Count indicator under sidebar filters
 st.sidebar.markdown(f"**{len(filtered_df):,} of {len(full_df):,} posts selected**")
 
 if filtered_df.empty:
     st.warning("No posts match the current filters.")
     st.stop()
 
-# Sidebar Expander for Metric Definitions
 with st.sidebar.expander("Metric definitions"):
     st.markdown(
         "• **Engagement rate**: `(likes + comments + shares + saves) / reach` per post, "
@@ -228,7 +266,92 @@ with tab_overview:
             st.dataframe(top_er_df, use_container_width=True)
 
 with tab_content:
-    st.info("Coming in the next step")
+    # A) Post Type Comparison
+    st.subheader("Post type comparison")
+    pt_sig = get_group_significance(filtered_df, "post_type")
+    st.caption(significance_caption(pt_sig, "post type"))
+
+    pt_df = get_post_type_performance(filtered_df)
+    st.plotly_chart(fig_post_type_actions(pt_df), use_container_width=True)
+    st.plotly_chart(fig_avg_engagement_rate_by_group(pt_df, "post_type", "Avg Engagement Rate by Post Type"), use_container_width=True)
+    st.caption("Error bars show the 95% confidence interval.")
+
+    st.markdown("---")
+
+    # B) Day of Week Performance
+    st.subheader("Day of week performance")
+    wk_sig = get_group_significance(filtered_df, "weekday")
+    st.caption(significance_caption(wk_sig, "day of week"))
+
+    wk_metric_choice = st.radio(
+        "Metric:",
+        options=["Engagement rate", "Total engagement"],
+        horizontal=True,
+        key="rad_weekday_metric"
+    )
+    metric_key = "avg_engagement_rate" if wk_metric_choice == "Engagement rate" else "avg_total_engagement"
+    wk_df = get_weekday_performance(filtered_df)
+    st.plotly_chart(fig_weekday_performance(wk_df, metric=metric_key), use_container_width=True)
+    if metric_key == "avg_engagement_rate":
+        st.caption("Error bars show the 95% confidence interval.")
+
+    st.markdown("---")
+
+    # C) Hashtag Performance
+    st.subheader("Hashtag performance")
+    ht_df = get_hashtag_performance(filtered_df)
+    col_ht1, col_ht2 = st.columns(2)
+    with col_ht1:
+        st.plotly_chart(fig_hashtag_usage(ht_df), use_container_width=True)
+    with col_ht2:
+        st.plotly_chart(fig_avg_engagement_rate_by_group(ht_df, "hashtag", "Avg Engagement Rate by Hashtag"), use_container_width=True)
+    st.caption("Posts with several hashtags count once per tag, so the groups overlap. Error bars show the 95% confidence interval.")
+
+    with st.expander("Significance by hashtag"):
+        ht_sig_df = get_hashtag_significance(filtered_df)
+        st.dataframe(
+            ht_sig_df[['hashtag', 'diff_pp', 'p_value', 'p_bonferroni', 'significant']],
+            use_container_width=True
+        )
+
+    st.markdown("---")
+
+    # D) Campaign Performance
+    st.subheader("Campaign performance")
+    cp_sig = get_group_significance(filtered_df, "campaign_type")
+    st.caption(significance_caption(cp_sig, "campaign type"))
+
+    cp_df = get_campaign_performance(filtered_df)
+    col_cp1, col_cp2 = st.columns(2)
+    with col_cp1:
+        st.plotly_chart(fig_avg_engagement_rate_by_group(cp_df, "campaign_type", "Avg Engagement Rate by Campaign"), use_container_width=True)
+    with col_cp2:
+        st.plotly_chart(fig_campaign_follows(cp_df), use_container_width=True)
+    st.caption("Error bars show the 95% confidence interval.")
 
 with tab_growth:
-    st.info("Coming in the next step")
+    # A) Engagement Funnel & Conversion
+    st.subheader("Engagement funnel")
+    eng_funnel_df = get_engagement_funnel(filtered_df)
+    col_ef1, col_ef2 = st.columns(2)
+    with col_ef1:
+        st.plotly_chart(fig_engagement_funnel(eng_funnel_df), use_container_width=True)
+    with col_ef2:
+        st.plotly_chart(fig_actions_per_100_reach(eng_funnel_df), use_container_width=True)
+    st.caption("Likes, comments, shares and saves are parallel actions, not sequential steps; percentages are of reach.")
+
+    st.markdown("---")
+
+    # B) Profile Growth Funnel
+    st.subheader("Growth funnel")
+    growth_df = get_growth_funnel(filtered_df)
+    st.plotly_chart(fig_growth_funnel(growth_df), use_container_width=True)
+
+    pv_rows = growth_df[growth_df['stage'] == 'Profile Visits']
+    fol_rows = growth_df[growth_df['stage'] == 'Follows']
+    if not pv_rows.empty and not fol_rows.empty and pv_rows['pct_of_reach'].iloc[0] is not None and fol_rows['pct_of_previous'].iloc[0] is not None:
+        pv_pct = pv_rows['pct_of_reach'].iloc[0] * 100
+        fol_pct = fol_rows['pct_of_previous'].iloc[0] * 100
+        st.caption(f"{pv_pct:.1f}% of reached accounts visit the profile; {fol_pct:.1f}% of visitors follow.")
+    else:
+        st.caption("Insufficient data for growth conversion metrics.")

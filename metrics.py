@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from scipy import stats
 from typing import Optional, Tuple, Any, Dict, List
 from data_loader import explode_hashtags, WEEKDAY_ORDER
 
@@ -28,6 +29,9 @@ HASHTAG_PERF_COLS = [
 ]
 CAMPAIGN_PERF_COLS = [
     'campaign_type', 'posts', 'avg_engagement_rate', 'er_ci95', 'avg_reach', 'avg_likes', 'avg_follows'
+]
+HASHTAG_SIGNIFICANCE_COLS = [
+    'hashtag', 'posts_with', 'mean_with', 'mean_without', 'diff_pp', 'p_value', 'p_bonferroni', 'significant'
 ]
 
 
@@ -213,7 +217,6 @@ def get_weekday_performance(df: pd.DataFrame) -> pd.DataFrame:
         })
 
     res = pd.DataFrame(records)
-    # Ensure categorical order Monday..Sunday
     res['weekday'] = pd.Categorical(res['weekday'], categories=WEEKDAY_ORDER, ordered=True)
     return res.sort_values('weekday').reset_index(drop=True)
 
@@ -352,3 +355,131 @@ def get_campaign_performance(df: pd.DataFrame) -> pd.DataFrame:
 
     res = pd.DataFrame(records)
     return res.sort_values('avg_engagement_rate', ascending=False).reset_index(drop=True)
+
+
+def get_group_significance(df: pd.DataFrame, group_col: str) -> Dict[str, Any]:
+    """
+    Compares engagement_rate across groups with:
+      - One-way ANOVA (scipy.stats.f_oneway) -> anova_f, anova_p
+      - Kruskal-Wallis (scipy.stats.kruskal) -> kruskal_p
+    Also returns: n_groups, n_posts, eta_squared, significant.
+    Returns None values on empty df or groups with fewer than 2 rows.
+    """
+    default_res = {
+        'n_groups': 0,
+        'n_posts': 0,
+        'anova_f': None,
+        'anova_p': None,
+        'kruskal_p': None,
+        'eta_squared': None,
+        'significant': False
+    }
+
+    if df.empty or len(df) == 0 or group_col not in df.columns:
+        return default_res
+
+    grouped = df.groupby(group_col, observed=True)
+    groups = [g['engagement_rate'].dropna().values for _, g in grouped]
+    groups = [g for g in groups if len(g) > 0]
+    n_groups = len(groups)
+    n_posts = sum(len(g) for g in groups)
+
+    if n_groups < 2 or any(len(g) < 2 for g in groups):
+        return {
+            'n_groups': n_groups,
+            'n_posts': n_posts,
+            'anova_f': None,
+            'anova_p': None,
+            'kruskal_p': None,
+            'eta_squared': None,
+            'significant': False
+        }
+
+    try:
+        f_res = stats.f_oneway(*groups)
+        k_res = stats.kruskal(*groups)
+        anova_f = float(f_res.statistic)
+        anova_p = float(f_res.pvalue)
+        kruskal_p = float(k_res.pvalue)
+    except Exception:
+        return {
+            'n_groups': n_groups,
+            'n_posts': n_posts,
+            'anova_f': None,
+            'anova_p': None,
+            'kruskal_p': None,
+            'eta_squared': None,
+            'significant': False
+        }
+
+    all_vals = np.concatenate(groups)
+    grand_mean = np.mean(all_vals)
+    ss_total = np.sum((all_vals - grand_mean) ** 2)
+    ss_between = sum(len(g) * (np.mean(g) - grand_mean) ** 2 for g in groups)
+    eta_squared = float(ss_between / ss_total) if ss_total > 0 else 0.0
+
+    significant = bool(anova_p < 0.05 and kruskal_p < 0.05)
+
+    return {
+        'n_groups': int(n_groups),
+        'n_posts': int(n_posts),
+        'anova_f': anova_f,
+        'anova_p': anova_p,
+        'kruskal_p': kruskal_p,
+        'eta_squared': eta_squared,
+        'significant': significant
+    }
+
+
+def get_hashtag_significance(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compares engagement_rate of posts WITH each hashtag vs posts WITHOUT it
+    using Welch's t-test (scipy.stats.ttest_ind, equal_var=False).
+    Columns: hashtag, posts_with, mean_with, mean_without, diff_pp,
+             p_value, p_bonferroni, significant
+    """
+    if df.empty or len(df) == 0 or 'hashtag_list' not in df.columns:
+        return pd.DataFrame(columns=HASHTAG_SIGNIFICANCE_COLS)
+
+    unique_tags = sorted(list({tag for tags in df['hashtag_list'].dropna() for tag in tags}))
+    if not unique_tags:
+        return pd.DataFrame(columns=HASHTAG_SIGNIFICANCE_COLS)
+
+    n_tags = len(unique_tags)
+    records = []
+
+    for tag in unique_tags:
+        with_mask = df['hashtag_list'].apply(lambda tags: tag in tags if isinstance(tags, (list, set)) else False)
+        with_vals = df.loc[with_mask, 'engagement_rate'].dropna()
+        without_vals = df.loc[~with_mask, 'engagement_rate'].dropna()
+
+        posts_with = len(with_vals)
+        if len(with_vals) < 2 or len(without_vals) < 2:
+            mean_with = float(with_vals.mean()) if len(with_vals) > 0 else None
+            mean_without = float(without_vals.mean()) if len(without_vals) > 0 else None
+            diff_pp = (mean_with - mean_without) * 100 if mean_with is not None and mean_without is not None else None
+            p_val = None
+            p_bonf = None
+            sig = False
+        else:
+            mean_with = float(with_vals.mean())
+            mean_without = float(without_vals.mean())
+            diff_pp = (mean_with - mean_without) * 100
+            t_res = stats.ttest_ind(with_vals, without_vals, equal_var=False)
+            p_val = float(t_res.pvalue)
+            p_bonf = float(min(1.0, p_val * n_tags))
+            sig = bool(p_bonf < 0.05)
+
+        records.append({
+            'hashtag': tag,
+            'posts_with': posts_with,
+            'mean_with': mean_with,
+            'mean_without': mean_without,
+            'diff_pp': diff_pp,
+            'p_value': p_val,
+            'p_bonferroni': p_bonf,
+            'significant': sig
+        })
+
+    res = pd.DataFrame(records)
+    return res.sort_values('diff_pp', ascending=False).reset_index(drop=True)

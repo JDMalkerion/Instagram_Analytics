@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
-from typing import Optional, Tuple, Any, Dict
+from typing import Optional, Tuple, Any, Dict, List
+from data_loader import explode_hashtags, WEEKDAY_ORDER
 
 TOP_POSTS_COLS = [
     'post_id', 'post_label', 'post_type', 'campaign_type', 'likes', 'reach', 'engagement_rate'
@@ -9,6 +10,40 @@ TOP_POSTS_ER_COLS = TOP_POSTS_COLS + ['likes_rank']
 MONTHLY_POSTS_COLS = [
     'month', 'month_label', 'posts', 'is_partial_month', 'posts_per_day'
 ]
+POST_TYPE_PERF_COLS = [
+    'post_type', 'posts', 'avg_likes', 'avg_comments', 'avg_shares', 'avg_saves',
+    'avg_reach', 'avg_engagement_rate', 'er_ci95'
+]
+WEEKDAY_PERF_COLS = [
+    'weekday', 'posts', 'avg_total_engagement', 'avg_engagement_rate', 'er_ci95'
+]
+ENGAGEMENT_FUNNEL_COLS = [
+    'stage', 'count', 'pct_of_impressions', 'pct_of_reach', 'pct_of_previous'
+]
+GROWTH_FUNNEL_COLS = [
+    'stage', 'count', 'pct_of_reach', 'pct_of_previous'
+]
+HASHTAG_PERF_COLS = [
+    'hashtag', 'posts', 'avg_engagement_rate', 'er_ci95', 'avg_reach', 'avg_likes'
+]
+CAMPAIGN_PERF_COLS = [
+    'campaign_type', 'posts', 'avg_engagement_rate', 'er_ci95', 'avg_reach', 'avg_likes', 'avg_follows'
+]
+
+
+def _ci95(series: pd.Series) -> float:
+    """
+    Computes 95% confidence interval half-width:
+    1.96 * std(ddof=1) / sqrt(n); returns 0.0 if n < 2.
+    """
+    clean = series.dropna()
+    n = len(clean)
+    if n < 2:
+        return 0.0
+    s = clean.std(ddof=1)
+    if np.isnan(s) or s == 0:
+        return 0.0
+    return float(1.96 * s / np.sqrt(n))
 
 
 def get_kpi_summary(df: pd.DataFrame) -> Dict[str, Any]:
@@ -117,7 +152,8 @@ def get_top_posts_by_engagement_rate(df: pd.DataFrame, n: int = 10) -> pd.DataFr
         return pd.DataFrame(columns=TOP_POSTS_ER_COLS)
 
     ranked_df = df.copy()
-    ranked_df['likes_rank'] = ranked_df['likes'].rank(ascending=False, method='min').astype(int)
+    # Uses rank(ascending=False, method="min") so tied posts receive the standard minimum competition rank
+    ranked_df['likes_rank'] = ranked_df['likes'].rank(ascending=False, method="min").astype(int)
 
     sorted_df = ranked_df.sort_values(
         by=['engagement_rate', 'likes', 'post_id'],
@@ -125,3 +161,194 @@ def get_top_posts_by_engagement_rate(df: pd.DataFrame, n: int = 10) -> pd.DataFr
     ).head(n)
 
     return sorted_df[TOP_POSTS_ER_COLS].reset_index(drop=True)
+
+
+def get_post_type_performance(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregates performance by post type.
+    Columns: post_type, posts, avg_likes, avg_comments, avg_shares, avg_saves,
+             avg_reach, avg_engagement_rate, er_ci95
+    """
+    if df.empty or len(df) == 0:
+        return pd.DataFrame(columns=POST_TYPE_PERF_COLS)
+
+    records = []
+    for pt, group in df.groupby('post_type', observed=True):
+        records.append({
+            'post_type': pt,
+            'posts': len(group),
+            'avg_likes': float(group['likes'].mean()),
+            'avg_comments': float(group['comments'].mean()),
+            'avg_shares': float(group['shares'].mean()),
+            'avg_saves': float(group['saves'].mean()),
+            'avg_reach': float(group['reach'].mean()),
+            'avg_engagement_rate': float(group['engagement_rate'].mean()),
+            'er_ci95': _ci95(group['engagement_rate'])
+        })
+
+    res = pd.DataFrame(records)
+    return res.sort_values('avg_engagement_rate', ascending=False).reset_index(drop=True)
+
+
+def get_weekday_performance(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregates performance by day of week.
+    Columns: weekday, posts, avg_total_engagement, avg_engagement_rate, er_ci95
+    Ordered Monday..Sunday.
+    """
+    if df.empty or len(df) == 0:
+        return pd.DataFrame(columns=WEEKDAY_PERF_COLS)
+
+    records = []
+    for day in WEEKDAY_ORDER:
+        group = df[df['weekday'] == day]
+        if len(group) == 0:
+            continue
+        records.append({
+            'weekday': day,
+            'posts': len(group),
+            'avg_total_engagement': float(group['total_engagement'].mean()),
+            'avg_engagement_rate': float(group['engagement_rate'].mean()),
+            'er_ci95': _ci95(group['engagement_rate'])
+        })
+
+    res = pd.DataFrame(records)
+    # Ensure categorical order Monday..Sunday
+    res['weekday'] = pd.Categorical(res['weekday'], categories=WEEKDAY_ORDER, ordered=True)
+    return res.sort_values('weekday').reset_index(drop=True)
+
+
+def get_engagement_funnel(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Engagement conversion funnel.
+    Stages in this order: Impressions, Reach, Likes, Comments, Shares, Saves
+    Columns: stage, count, pct_of_impressions, pct_of_reach (None for Impressions), pct_of_previous
+    Stored as fractions (0-1).
+    """
+    if df.empty or len(df) == 0:
+        return pd.DataFrame(columns=ENGAGEMENT_FUNNEL_COLS)
+
+    imp = int(df['impressions'].sum())
+    reach = int(df['reach'].sum())
+    likes = int(df['likes'].sum())
+    comments = int(df['comments'].sum())
+    shares = int(df['shares'].sum())
+    saves = int(df['saves'].sum())
+
+    stages_data = [
+        ('Impressions', imp),
+        ('Reach', reach),
+        ('Likes', likes),
+        ('Comments', comments),
+        ('Shares', shares),
+        ('Saves', saves),
+    ]
+
+    records = []
+    for i, (stage, count) in enumerate(stages_data):
+        pct_imp = count / imp if imp > 0 else 0.0
+        pct_reach = (count / reach if reach > 0 else 0.0) if stage != 'Impressions' else None
+        if i == 0:
+            pct_prev = None
+        else:
+            prev_count = stages_data[i - 1][1]
+            pct_prev = count / prev_count if prev_count > 0 else 0.0
+
+        records.append({
+            'stage': stage,
+            'count': count,
+            'pct_of_impressions': pct_imp,
+            'pct_of_reach': pct_reach,
+            'pct_of_previous': pct_prev
+        })
+
+    return pd.DataFrame(records)[ENGAGEMENT_FUNNEL_COLS]
+
+
+def get_growth_funnel(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Growth conversion funnel.
+    Stages: Reach, Profile Visits, Follows
+    Columns: stage, count, pct_of_reach, pct_of_previous
+    Stored as fractions (0-1).
+    """
+    if df.empty or len(df) == 0:
+        return pd.DataFrame(columns=GROWTH_FUNNEL_COLS)
+
+    reach = int(df['reach'].sum())
+    pv = int(df['profile_visits'].sum())
+    follows = int(df['follows'].sum())
+
+    stages_data = [
+        ('Reach', reach),
+        ('Profile Visits', pv),
+        ('Follows', follows)
+    ]
+
+    records = []
+    for i, (stage, count) in enumerate(stages_data):
+        pct_reach = count / reach if reach > 0 else 0.0
+        if i == 0:
+            pct_prev = None
+        else:
+            prev_count = stages_data[i - 1][1]
+            pct_prev = count / prev_count if prev_count > 0 else 0.0
+
+        records.append({
+            'stage': stage,
+            'count': count,
+            'pct_of_reach': pct_reach,
+            'pct_of_previous': pct_prev
+        })
+
+    return pd.DataFrame(records)[GROWTH_FUNNEL_COLS]
+
+
+def get_hashtag_performance(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregates performance by hashtag using exploded hashtags.
+    Columns: hashtag, posts, avg_engagement_rate, er_ci95, avg_reach, avg_likes
+    Sorted by avg_engagement_rate descending.
+    """
+    if df.empty or len(df) == 0:
+        return pd.DataFrame(columns=HASHTAG_PERF_COLS)
+
+    exploded = explode_hashtags(df)
+    records = []
+    for tag, group in exploded.groupby('hashtag', observed=True):
+        records.append({
+            'hashtag': tag,
+            'posts': len(group),
+            'avg_engagement_rate': float(group['engagement_rate'].mean()),
+            'er_ci95': _ci95(group['engagement_rate']),
+            'avg_reach': float(group['reach'].mean()),
+            'avg_likes': float(group['likes'].mean())
+        })
+
+    res = pd.DataFrame(records)
+    return res.sort_values('avg_engagement_rate', ascending=False).reset_index(drop=True)
+
+
+def get_campaign_performance(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregates performance by campaign type.
+    Columns: campaign_type, posts, avg_engagement_rate, er_ci95, avg_reach, avg_likes, avg_follows
+    Sorted by avg_engagement_rate descending.
+    """
+    if df.empty or len(df) == 0:
+        return pd.DataFrame(columns=CAMPAIGN_PERF_COLS)
+
+    records = []
+    for ct, group in df.groupby('campaign_type', observed=True):
+        records.append({
+            'campaign_type': ct,
+            'posts': len(group),
+            'avg_engagement_rate': float(group['engagement_rate'].mean()),
+            'er_ci95': _ci95(group['engagement_rate']),
+            'avg_reach': float(group['reach'].mean()),
+            'avg_likes': float(group['likes'].mean()),
+            'avg_follows': float(group['follows'].mean())
+        })
+
+    res = pd.DataFrame(records)
+    return res.sort_values('avg_engagement_rate', ascending=False).reset_index(drop=True)

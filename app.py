@@ -15,7 +15,10 @@ from metrics import (
     get_hashtag_performance,
     get_campaign_performance,
     get_group_significance,
-    get_hashtag_significance
+    get_hashtag_significance,
+    get_monthly_growth,
+    get_audience_emotion_performance,
+    get_engagement_source_performance
 )
 from charts import (
     fig_monthly_trend,
@@ -27,7 +30,8 @@ from charts import (
     fig_campaign_follows,
     fig_engagement_funnel,
     fig_actions_per_100_reach,
-    fig_growth_funnel
+    fig_growth_funnel,
+    fig_monthly_growth
 )
 
 # 1. Page Configuration
@@ -78,7 +82,9 @@ def significance_caption(result: dict, label: str) -> str:
     plural_map = {
         "post type": "post types",
         "day of week": "days of the week",
-        "campaign type": "campaign types"
+        "campaign type": "campaign types",
+        "audience emotion": "audience emotions",
+        "engagement source": "engagement sources"
     }
     plural_label = plural_map.get(label, f"{label}s")
 
@@ -329,8 +335,69 @@ with tab_content:
         st.plotly_chart(fig_campaign_follows(cp_df), use_container_width=True)
     st.caption("Error bars show the 95% confidence interval.")
 
+    st.markdown("---")
+
+    # E) Audience Emotion
+    st.subheader("Audience emotion")
+    emo_sig = get_group_significance(filtered_df, "audience_emotion")
+    st.caption(significance_caption(emo_sig, "audience emotion"))
+
+    emo_df = get_audience_emotion_performance(filtered_df)
+    col_em1, col_em2 = st.columns(2)
+    with col_em1:
+        st.plotly_chart(fig_avg_engagement_rate_by_group(emo_df, "audience_emotion", "Avg Engagement Rate by Audience Emotion"), use_container_width=True)
+    with col_em2:
+        st.plotly_chart(fig_campaign_follows(emo_df, "audience_emotion"), use_container_width=True)
+    st.caption("Error bars show the 95% confidence interval.")
+
+    st.markdown("---")
+
+    # F) Engagement Source
+    st.subheader("Engagement source")
+    src_sig = get_group_significance(filtered_df, "engagement_source")
+    st.caption(significance_caption(src_sig, "engagement source"))
+
+    src_df = get_engagement_source_performance(filtered_df)
+    col_sr1, col_sr2 = st.columns(2)
+    with col_sr1:
+        st.plotly_chart(fig_avg_engagement_rate_by_group(src_df, "engagement_source", "Avg Engagement Rate by Engagement Source"), use_container_width=True)
+    with col_sr2:
+        st.plotly_chart(fig_campaign_follows(src_df, "engagement_source"), use_container_width=True)
+    st.caption("Error bars show the 95% confidence interval.")
+
 with tab_growth:
-    # A) Engagement Funnel & Conversion
+    # A) Growth Trend by Month
+    st.subheader("Growth trend by month")
+    growth_metric_choice = st.radio(
+        "Growth metric:",
+        options=["Follows per day", "Follow rate (%)"],
+        horizontal=True,
+        key="rad_growth_metric"
+    )
+    growth_metric_key = "follows_per_day" if growth_metric_choice == "Follows per day" else "follow_rate"
+    monthly_growth_df = get_monthly_growth(filtered_df, bounds=full_bounds)
+    fig_mg = fig_monthly_growth(monthly_growth_df, metric=growth_metric_key)
+    st.plotly_chart(fig_mg, use_container_width=True)
+
+    full_m = monthly_growth_df[~monthly_growth_df['is_partial_month']]
+    if not full_m.empty:
+        low_row = full_m.loc[full_m['follows_per_day'].idxmin()]
+        high_row = full_m.loc[full_m['follows_per_day'].idxmax()]
+        dynamic_growth_sentence = (
+            f" Among full tracking months, follows per day ranged from "
+            f"{low_row['follows_per_day']:,.0f} ({low_row['month_label']}) to "
+            f"{high_row['follows_per_day']:,.0f} ({high_row['month_label']})."
+        )
+    else:
+        dynamic_growth_sentence = ""
+
+    st.caption(
+        f"Follows attributed to posts. The dataset has no follower totals or unfollows, so this is a growth proxy, not net follower count.{dynamic_growth_sentence}"
+    )
+
+    st.markdown("---")
+
+    # B) Engagement Funnel & Conversion
     st.subheader("Engagement funnel")
     eng_funnel_df = get_engagement_funnel(filtered_df)
     col_ef1, col_ef2 = st.columns(2)
@@ -342,7 +409,7 @@ with tab_growth:
 
     st.markdown("---")
 
-    # B) Profile Growth Funnel
+    # C) Profile Growth Funnel
     st.subheader("Growth funnel")
     growth_df = get_growth_funnel(filtered_df)
     st.plotly_chart(fig_growth_funnel(growth_df), use_container_width=True)
@@ -355,3 +422,4 @@ with tab_growth:
         st.caption(f"{pv_pct:.1f}% of reached accounts visit the profile; {fol_pct:.1f}% of visitors follow.")
     else:
         st.caption("Insufficient data for growth conversion metrics.")
+

@@ -33,6 +33,16 @@ CAMPAIGN_PERF_COLS = [
 HASHTAG_SIGNIFICANCE_COLS = [
     'hashtag', 'posts_with', 'mean_with', 'mean_without', 'diff_pp', 'p_value', 'p_bonferroni', 'significant'
 ]
+MONTHLY_GROWTH_COLS = [
+    'month', 'month_label', 'is_partial_month', 'follows', 'profile_visits',
+    'reach', 'follows_per_day', 'follow_rate', 'profile_visit_rate'
+]
+AUDIENCE_EMOTION_PERF_COLS = [
+    'audience_emotion', 'posts', 'avg_engagement_rate', 'er_ci95', 'avg_reach', 'avg_likes', 'avg_follows'
+]
+ENGAGEMENT_SOURCE_PERF_COLS = [
+    'engagement_source', 'posts', 'avg_engagement_rate', 'er_ci95', 'avg_reach', 'avg_likes', 'avg_follows'
+]
 
 
 def _ci95(series: pd.Series) -> float:
@@ -483,3 +493,115 @@ def get_hashtag_significance(df: pd.DataFrame) -> pd.DataFrame:
 
     res = pd.DataFrame(records)
     return res.sort_values('diff_pp', ascending=False).reset_index(drop=True)
+
+
+def get_monthly_growth(
+    df: pd.DataFrame,
+    bounds: Optional[Tuple[Any, Any]] = None
+) -> pd.DataFrame:
+    """
+    Monthly growth aggregations.
+    Columns: month, month_label, is_partial_month, follows, profile_visits,
+             reach, follows_per_day, follow_rate, profile_visit_rate.
+    Sorted chronologically by month.
+    follows_per_day = follows / number of days of that month that fall inside bounds.
+    bounds is a (start_date, end_date) tuple; if None, use min and max post_date of df.
+    """
+    if df.empty or len(df) == 0:
+        return pd.DataFrame(columns=MONTHLY_GROWTH_COLS)
+
+    if bounds is None:
+        start_date = pd.Timestamp(df['post_date'].min()).floor('D')
+        end_date = pd.Timestamp(df['post_date'].max()).floor('D')
+    else:
+        start_date = pd.Timestamp(bounds[0]).floor('D')
+        end_date = pd.Timestamp(bounds[1]).floor('D')
+
+    grouped = (
+        df.groupby(['month', 'month_label', 'is_partial_month'], as_index=False)
+        .agg({
+            'follows': 'sum',
+            'profile_visits': 'sum',
+            'reach': 'sum'
+        })
+    )
+    grouped = grouped.sort_values('month').reset_index(drop=True)
+
+    follows_per_day_list = []
+    for _, row in grouped.iterrows():
+        m_start = pd.Timestamp(row['month']).floor('D')
+        m_end = (m_start + pd.offsets.MonthEnd(1)).floor('D')
+
+        overlap_start = max(m_start, start_date)
+        overlap_end = min(m_end, end_date)
+
+        if overlap_end >= overlap_start:
+            days_in_bounds = (overlap_end - overlap_start).days + 1
+        else:
+            days_in_bounds = 0
+
+        if days_in_bounds > 0:
+            fpd = row['follows'] / days_in_bounds
+        else:
+            fpd = 0.0
+        follows_per_day_list.append(fpd)
+
+    grouped['follows_per_day'] = follows_per_day_list
+    grouped['follow_rate'] = grouped.apply(
+        lambda r: r['follows'] / r['reach'] if r['reach'] > 0 else 0.0, axis=1
+    )
+    grouped['profile_visit_rate'] = grouped.apply(
+        lambda r: r['profile_visits'] / r['reach'] if r['reach'] > 0 else 0.0, axis=1
+    )
+
+    return grouped[MONTHLY_GROWTH_COLS]
+
+
+def get_audience_emotion_performance(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregates performance by audience emotion.
+    Columns: audience_emotion, posts, avg_engagement_rate, er_ci95, avg_reach, avg_likes, avg_follows
+    Sorted by avg_engagement_rate descending.
+    """
+    if df.empty or len(df) == 0:
+        return pd.DataFrame(columns=AUDIENCE_EMOTION_PERF_COLS)
+
+    records = []
+    for emotion, group in df.groupby('audience_emotion', observed=True):
+        records.append({
+            'audience_emotion': emotion,
+            'posts': len(group),
+            'avg_engagement_rate': float(group['engagement_rate'].mean()),
+            'er_ci95': _ci95(group['engagement_rate']),
+            'avg_reach': float(group['reach'].mean()),
+            'avg_likes': float(group['likes'].mean()),
+            'avg_follows': float(group['follows'].mean())
+        })
+
+    res = pd.DataFrame(records)
+    return res.sort_values('avg_engagement_rate', ascending=False).reset_index(drop=True)
+
+
+def get_engagement_source_performance(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregates performance by engagement source.
+    Columns: engagement_source, posts, avg_engagement_rate, er_ci95, avg_reach, avg_likes, avg_follows
+    Sorted by avg_engagement_rate descending.
+    """
+    if df.empty or len(df) == 0:
+        return pd.DataFrame(columns=ENGAGEMENT_SOURCE_PERF_COLS)
+
+    records = []
+    for source, group in df.groupby('engagement_source', observed=True):
+        records.append({
+            'engagement_source': source,
+            'posts': len(group),
+            'avg_engagement_rate': float(group['engagement_rate'].mean()),
+            'er_ci95': _ci95(group['engagement_rate']),
+            'avg_reach': float(group['reach'].mean()),
+            'avg_likes': float(group['likes'].mean()),
+            'avg_follows': float(group['follows'].mean())
+        })
+
+    res = pd.DataFrame(records)
+    return res.sort_values('avg_engagement_rate', ascending=False).reset_index(drop=True)

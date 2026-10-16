@@ -98,20 +98,35 @@ Key operational questions addressed by this dashboard:
    - Product Launch: **18.49%** average ER
    - Festive Offer: **18.44%** average ER (lowest)
    - Spread: **0.16 percentage points** (ANOVA $p = 0.478$, Kruskal-Wallis $p = 0.456$, $\eta^2 = 0.007\%$).
-5. **Hashtags**:
+5. **Audience Emotion**:
+   - Curious: **18.62%** average ER (highest, 10,027 posts)
+   - Confident: **18.57%** average ER (9,891 posts)
+   - Inspired: **18.51%** average ER (10,137 posts)
+   - Happy: **18.50%** average ER (9,884 posts)
+   - Excited: **18.47%** average ER (lowest, 10,061 posts)
+   - Spread: **0.16 percentage points** (ANOVA $p = 0.562$, Kruskal-Wallis $p = 0.572$, $\eta^2 = 0.006\%$).
+6. **Engagement Source**:
+   - Collab: **18.59%** average ER (highest, 12,633 posts)
+   - Influencer: **18.58%** average ER (12,501 posts)
+   - Paid: **18.53%** average ER (12,358 posts)
+   - Organic: **18.44%** average ER (lowest, 12,508 posts)
+   - Spread: **0.14 percentage points** (ANOVA $p = 0.349$, Kruskal-Wallis $p = 0.363$, $\eta^2 = 0.007\%$).
+7. **Hashtags**:
    - `#VeganBeauty`: **18.61%** ER (highest) vs. `#MakeupGoals`: **18.51%** ER (lowest).
    - Difference: **0.12 percentage points**. Smallest Bonferroni-adjusted $p$-value is **0.377** (not statistically significant).
-6. **Engagement Funnel**:
+8. **Engagement Funnel**:
    - **Reach to Impressions**: Reach represents **77.4%** of impressions ($987.4\text{M} / 1.28\text{B}$).
    - **Likes**: **15.0%** of reached accounts ($147.7\text{M} / 987.4\text{M}$).
    - **Comments**: **1.87%** of reached accounts ($18.5\text{M} / 987.4\text{M}$).
    - **Saves**: **0.90%** of reached accounts ($8.86\text{M} / 987.4\text{M}$).
    - **Shares**: **0.82%** of reached accounts ($8.12\text{M} / 987.4\text{M}$).
-7. **Growth Funnel**:
+9. **Growth Funnel & Monthly Growth Proxy**:
    - **3.0%** of reached accounts visit the brand profile ($29.6\text{M} / 987.4\text{M}$).
    - **29.9%** of profile visitors convert into followers ($8.87\text{M} / 29.6\text{M}$).
    - Net follower conversion from total reach is **0.90%** ($8.87\text{M} / 987.4\text{M}$).
-8. **Top Posts & "Hidden Gems"**:
+   - **Monthly Growth Proxy**: Total post-attributed follows sum to **8,866,710** and profile visits to **29,634,798**. Because the dataset does not record total account follower counts or unfollows, follows attributed to posts serve as an acquisition growth proxy.
+   - Across full tracking months, follows per day remained remarkably stable, ranging from a low of **23,299 follows/day** in **Jul 2024** (722,283 follows / 31 days) to a high of **25,072 follows/day** in **Jun 2024** (752,157 follows / 30 days). The post-level follow rate remained tightly bounded between **0.88%** and **0.91%** of reach across all months.
+10. **Top Posts & "Hidden Gems"**:
    - The top 10 posts by likes all have high reach between **44,307 and 46,789** (peaking at 11,392 likes).
    - The top 10 posts by engagement rate span a tight range of **33.82% to 34.10%** with lower reach (median 23,485).
    - **0 of the top 10 engagement rate posts appear in the top 10 by likes**, highlighting high-efficiency posts that captured intense engagement despite modest distribution.
@@ -139,10 +154,13 @@ The dashboard is structured into interactive controls and three primary tabs:
   - Post Type average ER with 95% CI error bars and dynamic ANOVA / Kruskal-Wallis significance caption.
   - Weekday performance chart with metric toggle (ER vs. Total Engagement).
   - Hashtag volume vs. ER bar charts with expandable Welch's t-test statistical significance summary.
-  - Campaign performance ER chart vs. average follows per post chart.
+  - Campaign performance: average ER with 95% CI error bars alongside average follows per post.
+  - Audience emotion: average ER with 95% CI error bars alongside average follows per post and significance test caption.
+  - Engagement source: average ER with 95% CI error bars alongside average follows per post and significance test caption.
 - **Tab 3: Engagement & Growth**:
   - Full funnel conversion chart paired with actions per 100 reached accounts.
   - Growth funnel (Reach $\to$ Profile Visits $\to$ Follows) with dynamic conversion rate annotations.
+  - Growth trend by month: chronological line chart of follows per day with a radio switch to follow rate (% of reach), partial months styled with open markers and dotted line segments, accompanied by dynamic callout of lowest (Jul 2024 at 23,299 follows/day) and highest (Jun 2024 at 25,072 follows/day) full months.
 
 ---
 
@@ -184,6 +202,7 @@ python verify_loader.py
 python verify_metrics.py
 python verify_metrics_step4.py
 python verify_metrics_step5.py
+python verify_metrics_step6c.py
 python verify_app.py
 
 # 6. Launch the Streamlit dashboard
@@ -199,17 +218,17 @@ Access the application at `http://localhost:8501`.
 Instagram_Analytics/
 ├── .gitignore               # Excludes venv/, __pycache__/, Data/, etc.
 ├── README.md                # Project documentation and analytical report
-├── requirements.txt         # Dependencies (streamlit, pandas, plotly, openpyxl, scipy, kaleido)
+├── requirements.txt         # Dependencies (streamlit, pandas, plotly, openpyxl, scipy)
 ├── app.py                   # Streamlit analytics dashboard application
 ├── data_loader.py           # Data ingestion, snake_case renaming, derived columns, filtering
 ├── metrics.py               # Aggregations, funnel calculations, ANOVA, Kruskal, Welch t-tests
 ├── charts.py                # Reusable Plotly figures with consistent design tokens
-├── export_figures.py        # Standalone script for exporting static figures
 ├── audit_data.py            # Initial dataset audit and integrity check
 ├── verify_loader.py         # Verification tests for data_loader
 ├── verify_metrics.py        # Independent verification tests for Tasks 1-4
 ├── verify_metrics_step4.py  # Independent verification tests for Tasks 5-8
 ├── verify_metrics_step5.py  # Independent verification tests for formal significance tests
+├── verify_metrics_step6c.py # Independent verification tests for Step 6c growth & emotion/source metrics
 ├── verify_app.py            # Automated Streamlit AppTest test suite
 ├── Data/                    # Untracked folder containing raw Excel file
 └── images/                  # Exported visuals and screenshots

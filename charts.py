@@ -462,9 +462,12 @@ def fig_hashtag_usage(hashtag_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def fig_campaign_follows(campaign_df: pd.DataFrame) -> go.Figure:
+def fig_campaign_follows(
+    campaign_df: pd.DataFrame,
+    group_col: str = "campaign_type"
+) -> go.Figure:
     """
-    Avg follows per post by campaign type.
+    Avg follows per post by group (campaign_type, audience_emotion, engagement_source).
     Ordered by avg_engagement_rate descending. Y-axis starts at 0.
     """
     fig = go.Figure()
@@ -477,7 +480,7 @@ def fig_campaign_follows(campaign_df: pd.DataFrame) -> go.Figure:
     text_labels = [f"{v:.1f}" for v in sorted_df['avg_follows']]
 
     fig.add_trace(go.Bar(
-        x=sorted_df['campaign_type'],
+        x=sorted_df[group_col],
         y=sorted_df['avg_follows'],
         marker_color=ACCENT_PINK,
         text=text_labels,
@@ -633,6 +636,130 @@ def fig_growth_funnel(growth_df: pd.DataFrame) -> go.Figure:
         font=dict(family=FONT_FAMILY, color=COLOR_TEXT_MAIN),
         margin=dict(l=20, r=20, t=30, b=30),
         height=300
+    )
+
+    return fig
+
+
+def fig_monthly_growth(
+    monthly_growth_df: pd.DataFrame,
+    metric: str = "follows_per_day"
+) -> go.Figure:
+    """
+    Line chart for monthly follower growth with markers over month_label.
+    metric is 'follows_per_day' or 'follow_rate'.
+    Partial months get open markers and dotted line segments.
+    Y-axis starts at 0.
+    """
+    fig = go.Figure()
+
+    if monthly_growth_df.empty or len(monthly_growth_df) == 0:
+        fig.update_layout(
+            template=THEME_TEMPLATE,
+            annotations=[dict(
+                text="No growth data available for the selected period",
+                showarrow=False,
+                xref="paper", yref="paper",
+                x=0.5, y=0.5,
+                font=dict(size=14, color=COLOR_TEXT_MUTED)
+            )]
+        )
+        return fig
+
+    sorted_df = monthly_growth_df.sort_values('month').reset_index(drop=True)
+    is_rate = (metric == "follow_rate")
+    y_col = metric
+    y_title = "Follow Rate (% of Reach)" if is_rate else "Follows per Day (Active Days)"
+    tickformat = ".2%" if is_rate else ",.0f"
+
+    # 1. Connect consecutive points with solid or dotted line segments
+    for i in range(len(sorted_df) - 1):
+        p1 = sorted_df.iloc[i]
+        p2 = sorted_df.iloc[i + 1]
+        is_partial_seg = bool(p1['is_partial_month'] or p2['is_partial_month'])
+
+        fig.add_trace(go.Scatter(
+            x=[p1['month_label'], p2['month_label']],
+            y=[p1[y_col], p2[y_col]],
+            mode='lines',
+            line=dict(
+                color=ACCENT_PINK,
+                width=2.5,
+                dash='dot' if is_partial_seg else 'solid'
+            ),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+
+    # 2. Markers for full months
+    full_df = sorted_df[~sorted_df['is_partial_month']]
+    if not full_df.empty:
+        hover_text = (
+            "<b>%{x}</b><br>Follow Rate: %{y:.2%}<br>Status: Full calendar month<extra></extra>"
+            if is_rate else
+            "<b>%{x}</b><br>Follows/Day: %{y:,.1f}<br>Total Follows: %{customdata[0]:,}<br>Status: Full calendar month<extra></extra>"
+        )
+        fig.add_trace(go.Scatter(
+            x=full_df['month_label'],
+            y=full_df[y_col],
+            mode='markers',
+            name='Full month',
+            marker=dict(
+                color=ACCENT_PINK,
+                size=9,
+                line=dict(color='#FFFFFF', width=1)
+            ),
+            customdata=full_df[['follows', 'reach']].values,
+            hovertemplate=hover_text
+        ))
+
+    # 3. Markers for partial months
+    partial_df = sorted_df[sorted_df['is_partial_month']]
+    if not partial_df.empty:
+        hover_text_part = (
+            "<b>%{x}</b><br>Follow Rate: %{y:.2%}<br>Status: Partial tracking month (dotted segment)<extra></extra>"
+            if is_rate else
+            "<b>%{x}</b><br>Follows/Day: %{y:,.1f}<br>Total Follows: %{customdata[0]:,}<br>Status: Partial tracking month (dotted segment)<extra></extra>"
+        )
+        fig.add_trace(go.Scatter(
+            x=partial_df['month_label'],
+            y=partial_df[y_col],
+            mode='markers',
+            name='Partial month',
+            marker=dict(
+                symbol='circle-open',
+                size=11,
+                line=dict(color=ACCENT_PINK, width=2.5)
+            ),
+            customdata=partial_df[['follows', 'reach']].values,
+            hovertemplate=hover_text_part
+        ))
+
+    fig.update_layout(
+        template=THEME_TEMPLATE,
+        font=dict(family=FONT_FAMILY, color=COLOR_TEXT_MAIN),
+        margin=dict(l=20, r=20, t=30, b=30),
+        height=380,
+        xaxis=dict(
+            title="",
+            gridcolor=COLOR_GRID,
+            tickfont=dict(size=12)
+        ),
+        yaxis=dict(
+            title=y_title,
+            gridcolor=COLOR_GRID,
+            rangemode='tozero',
+            tickformat=tickformat,
+            tickfont=dict(size=12)
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            font=dict(size=12)
+        )
     )
 
     return fig

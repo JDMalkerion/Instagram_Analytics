@@ -5,17 +5,21 @@ from streamlit.testing.v1 import AppTest
 from data_loader import load_data, filter_data
 from metrics import (
     get_monthly_posts,
+    get_monthly_growth,
     get_post_type_performance,
     get_weekday_performance,
     get_engagement_funnel,
     get_growth_funnel,
     get_hashtag_performance,
     get_campaign_performance,
+    get_audience_emotion_performance,
+    get_engagement_source_performance,
     get_top_posts_by_likes,
     get_top_posts_by_engagement_rate
 )
 from charts import (
     fig_monthly_trend,
+    fig_monthly_growth,
     fig_top_posts,
     fig_post_type_actions,
     fig_avg_engagement_rate_by_group,
@@ -70,14 +74,24 @@ print(f"  Expected: {expected_default_count:,} | Actual: {default_posts_str}")
 assert default_posts_str == "50,000"
 print("  ✓ Total posts metric correctly shows 50,000.")
 
-# Check that the three comparison captions for post type, weekday and campaign contain "not statistically significant"
+# Check that the five comparison captions (post type, weekday, campaign, audience emotion, engagement source) contain "not statistically significant"
 captions_default = [c.value for c in at.caption]
 not_sig_captions = [c for c in captions_default if "not statistically significant" in c]
 print(f"  Captions containing 'not statistically significant': {len(not_sig_captions)} found")
 for nsc in not_sig_captions:
     print(f"    - {nsc}")
-assert len(not_sig_captions) == 3, f"Expected exactly 3 captions with 'not statistically significant', found {len(not_sig_captions)}"
-print("  ✓ All 3 comparison captions (post type, weekday, campaign) contain 'not statistically significant'.")
+assert len(not_sig_captions) == 5, f"Expected exactly 5 captions with 'not statistically significant', found {len(not_sig_captions)}"
+print("  ✓ All 5 comparison captions (post type, weekday, campaign, audience emotion, engagement source) contain 'not statistically significant'.")
+
+# Check growth trend caption and dynamic sentence
+growth_captions = [c for c in captions_default if "growth proxy, not net follower count" in c]
+assert len(growth_captions) == 1, "Expected growth trend caption not found!"
+growth_cap = growth_captions[0]
+print(f"  Growth trend caption: {growth_cap}")
+assert "Follows attributed to posts. The dataset has no follower totals or unfollows, so this is a growth proxy, not net follower count." in growth_cap
+assert "follows per day ranged from" in growth_cap
+assert "Jul 2024" in growth_cap and "Jun 2024" in growth_cap
+print("  ✓ Growth trend caption and dynamic lowest/highest sentence verified.")
 
 # Test 2: flt_post_type = ["Reel"]
 print("\n[Test 2: Reel filter]")
@@ -219,8 +233,14 @@ check_value_axis_zero(fig_weekday_performance(wk_df, "avg_total_engagement"), "f
 check_value_axis_zero(fig_hashtag_usage(get_hashtag_performance(df)), "fig_hashtag_usage", 'v')
 check_value_axis_zero(fig_campaign_follows(get_campaign_performance(df)), "fig_campaign_follows", 'v')
 check_value_axis_zero(fig_actions_per_100_reach(eng_funnel_df), "fig_actions_per_100_reach", 'h')
+check_value_axis_zero(fig_monthly_growth(get_monthly_growth(df), "follows_per_day"), "fig_monthly_growth (fpd)", 'v')
+check_value_axis_zero(fig_monthly_growth(get_monthly_growth(df), "follow_rate"), "fig_monthly_growth (rate)", 'v')
+check_value_axis_zero(fig_avg_engagement_rate_by_group(get_audience_emotion_performance(df), "audience_emotion"), "fig_avg_engagement_rate_by_group (emotion)", 'v')
+check_value_axis_zero(fig_campaign_follows(get_audience_emotion_performance(df), group_col="audience_emotion"), "fig_campaign_follows (emotion)", 'v')
+check_value_axis_zero(fig_avg_engagement_rate_by_group(get_engagement_source_performance(df), "engagement_source"), "fig_avg_engagement_rate_by_group (source)", 'v')
+check_value_axis_zero(fig_campaign_follows(get_engagement_source_performance(df), group_col="engagement_source"), "fig_campaign_follows (source)", 'v')
 
-print("  ✓ Confirmed: All 9 bar charts start their value axis strictly at 0.")
+print("  ✓ Confirmed: All bar and trend charts start their value axis strictly at 0.")
 
 
 # --- PART 3: REEL APR 2024 BOUNDS NORMALIZATION CHECK ---

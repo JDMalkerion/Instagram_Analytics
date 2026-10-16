@@ -76,6 +76,7 @@ def fig_monthly_trend(monthly_df: pd.DataFrame, metric: str = "posts") -> go.Fig
             y=full_df[y_col],
             mode='markers',
             name='Full month',
+            line=dict(color=ACCENT_PINK),
             marker=dict(
                 color=ACCENT_PINK,
                 size=9,
@@ -99,7 +100,9 @@ def fig_monthly_trend(monthly_df: pd.DataFrame, metric: str = "posts") -> go.Fig
             y=partial_df[y_col],
             mode='markers',
             name='Partial month',
+            line=dict(color=ACCENT_PINK),
             marker=dict(
+                color=ACCENT_PINK,
                 symbol='circle-open',
                 size=11,
                 line=dict(color=ACCENT_PINK, width=2.5)
@@ -704,6 +707,7 @@ def fig_monthly_growth(
             y=full_df[y_col],
             mode='markers',
             name='Full month',
+            line=dict(color=ACCENT_PINK),
             marker=dict(
                 color=ACCENT_PINK,
                 size=9,
@@ -726,7 +730,9 @@ def fig_monthly_growth(
             y=partial_df[y_col],
             mode='markers',
             name='Partial month',
+            line=dict(color=ACCENT_PINK),
             marker=dict(
+                color=ACCENT_PINK,
                 symbol='circle-open',
                 size=11,
                 line=dict(color=ACCENT_PINK, width=2.5)

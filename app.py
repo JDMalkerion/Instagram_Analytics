@@ -230,6 +230,7 @@ with tab_overview:
     metric_selection = st.radio(
         "Metric",
         options=["Posts", "Posts per day"],
+        index=1,
         horizontal=True,
         key="rad_monthly_metric"
     )

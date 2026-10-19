@@ -4,6 +4,11 @@ An interactive Streamlit analytics dashboard for evaluating post-level performan
 
 ---
 
+## Streamlit App Link: 
+https://instagramanalytics-awu29g4zgsyhetu7kiwxz6.streamlit.app/
+
+---
+
 ## 1. Business Problem
 
 Beauty brands on Instagram compete in a high-frequency, algorithm-driven feed where content creators, brands, and consumers interact through multiple formats (Reels, Stories, Feed Images, Videos) and promotional campaigns.

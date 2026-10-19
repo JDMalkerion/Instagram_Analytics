@@ -74,7 +74,7 @@ Key operational questions addressed by this dashboard:
 - **Group Comparisons**: One-way ANOVA ($F$-statistic) and non-parametric Kruskal-Wallis ($H$-statistic) test differences across post types, weekdays, and campaign types.
 - **Effect Size**: Eta-squared ($\eta^2 = SS_{\text{between}} / SS_{\text{total}}$) measures the percentage of total variance in engagement rate explained by the categorical dimension.
 - **Confidence Intervals**: 95% confidence intervals are displayed as error bars:
-  $$\text{CI}_{95\%} = \bar{x} \pm 1.96 \times \frac{s}{\sqrt{n}}$$
+  $$\text{CI}_{95} = \bar{x} \pm 1.96 \times \frac{s}{\sqrt{n}}$$
 
 ---
 
